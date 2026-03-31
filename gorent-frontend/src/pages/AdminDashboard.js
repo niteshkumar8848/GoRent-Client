@@ -2,29 +2,49 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { useToast } from "../components/Toast";
 import { useConfirmDialog } from "../components/ConfirmDialog";
+import VehicleDetailsCard from "../components/VehicleDetailsCard";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const getApiUrl = () => {
+  const envUrl = process.env.REACT_APP_API_URL;
+  if (envUrl) return envUrl;
+  if (window.location.hostname === "localhost") {
+    return "http://localhost:5000/api";
+  }
+  return `${window.location.protocol}//${window.location.host}/api`;
+};
 
-// Get the base URL (without /api)
-const BASE_URL = API_URL.replace("/api", "");
+const API_URL = getApiUrl();
 
 // Helper function to get full image URL
 const getImageUrl = (imagePath) => {
   if (!imagePath) return null;
-  // If it's already a full URL (e.g., from ImageKit or placeholder), return as is
-  if (imagePath.startsWith("http")) return imagePath;
-  // If it's a local path starting with /uploads, prepend the server base URL
-  if (imagePath.startsWith("/uploads")) {
-    return BASE_URL + imagePath;
+  const normalizedPath = String(imagePath).trim().replace(/\\/g, "/");
+  if (normalizedPath.startsWith("http")) return normalizedPath;
+
+  const apiOrigin = API_URL.replace(/\/api\/?$/, "");
+  const apiBase = API_URL.replace(/\/$/, "");
+
+  // Route uploaded files through /api/uploads for proxy-based deployments
+  if (normalizedPath.startsWith("/uploads")) {
+    return `${apiBase}${normalizedPath}`;
   }
-  // Fallback: prepend BASE_URL
-  return BASE_URL + imagePath;
+
+  if (normalizedPath.startsWith("uploads/")) {
+    return `${apiBase}/${normalizedPath}`;
+  }
+
+  if (normalizedPath.startsWith("/")) {
+    return `${apiOrigin}${normalizedPath}`;
+  }
+
+  return `${apiOrigin}/${normalizedPath}`;
 };
 
 function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("bookings");
   const [bookings, setBookings] = useState([]);
   const [vehicles, setVehicles] = useState([]);
+  const [feedbackSummary, setFeedbackSummary] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const { addToast } = useToast();
@@ -48,6 +68,12 @@ function AdminDashboard() {
     name: "",
     brand: "",
     pricePerDay: "",
+    seats: "",
+    fuelType: "",
+    category: "",
+    ac: "",
+    luggage_capacity: "",
+    pickup_locations: [{ name: "", lat: "", lng: "" }],
     available: true
   });
   const [vehicleImage, setVehicleImage] = useState(null);
@@ -81,7 +107,12 @@ function AdminDashboard() {
       if (showLoading) {
         setLoading(true);
       }
-      await Promise.all([fetchBookings(showLoading), fetchVehicles(showLoading), fetchAdminProfile(showLoading)]);
+      await Promise.all([
+        fetchBookings(showLoading),
+        fetchVehicles(showLoading),
+        fetchAdminProfile(showLoading),
+        fetchFeedbackSummary(showLoading)
+      ]);
     } catch (err) {
       if (showLoading) {
         setError("Failed to load data");
@@ -146,7 +177,7 @@ function AdminDashboard() {
 
   const fetchVehicles = async (showLoading = true) => {
     try {
-      const res = await axios.get(`${API_URL}/vehicles`);
+      const res = await axios.get(`${API_URL}/vehicles?includeUnavailable=true`);
       
       // Handle both old format (array) and new format ({success, data})
       let vehicleData = [];
@@ -165,6 +196,22 @@ function AdminDashboard() {
       });
     } catch (err) {
       console.error("Failed to fetch vehicles");
+    }
+  };
+
+  const fetchFeedbackSummary = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/feedback/summary`, config);
+      const summaryData = Array.isArray(res.data?.data) ? res.data.data : [];
+      const summaryMap = {};
+
+      summaryData.forEach((item) => {
+        summaryMap[String(item.vehicle_id)] = item;
+      });
+
+      setFeedbackSummary(summaryMap);
+    } catch (err) {
+      setFeedbackSummary({});
     }
   };
 
@@ -203,6 +250,12 @@ function AdminDashboard() {
       formData.append("name", vehicleForm.name);
       formData.append("brand", vehicleForm.brand);
       formData.append("pricePerDay", vehicleForm.pricePerDay);
+      formData.append("seats", vehicleForm.seats);
+      formData.append("fuelType", vehicleForm.fuelType);
+      formData.append("category", vehicleForm.category);
+      formData.append("ac", vehicleForm.ac);
+      formData.append("luggage_capacity", vehicleForm.luggage_capacity);
+      formData.append("pickup_locations", JSON.stringify(vehicleForm.pickup_locations));
       formData.append("available", vehicleForm.available);
       
       // Append image if selected
@@ -224,7 +277,18 @@ function AdminDashboard() {
       
       setShowVehicleForm(false);
       setEditingVehicle(null);
-      setVehicleForm({ name: "", brand: "", pricePerDay: "", available: true });
+      setVehicleForm({
+        name: "",
+        brand: "",
+        pricePerDay: "",
+        seats: "",
+        fuelType: "",
+        category: "",
+        ac: "",
+        luggage_capacity: "",
+        pickup_locations: [{ name: "", lat: "", lng: "" }],
+        available: true
+      });
       setVehicleImage(null);
       setExistingImage("");
       setImagePreview("");
@@ -242,6 +306,18 @@ function AdminDashboard() {
       name: vehicle.name,
       brand: vehicle.brand,
       pricePerDay: vehicle.pricePerDay,
+      seats: vehicle.seats ?? "",
+      fuelType: vehicle.fuelType || vehicle.fuel_type || "",
+      category: vehicle.category || "",
+      ac: typeof vehicle.ac === "boolean" ? String(vehicle.ac) : "",
+      luggage_capacity: vehicle.luggage_capacity || "",
+      pickup_locations: Array.isArray(vehicle.pickup_locations) && vehicle.pickup_locations.length > 0
+        ? vehicle.pickup_locations.map((location) => ({
+            name: location.name || "",
+            lat: location.lat ?? "",
+            lng: location.lng ?? ""
+          }))
+        : [{ name: "", lat: "", lng: "" }],
       available: vehicle.available
     });
     // Use full URL for existing image preview
@@ -265,7 +341,18 @@ function AdminDashboard() {
   };
 
   const resetVehicleForm = () => {
-    setVehicleForm({ name: "", brand: "", pricePerDay: "", available: true });
+    setVehicleForm({
+      name: "",
+      brand: "",
+      pricePerDay: "",
+      seats: "",
+      fuelType: "",
+      category: "",
+      ac: "",
+      luggage_capacity: "",
+      pickup_locations: [{ name: "", lat: "", lng: "" }],
+      available: true
+    });
     setVehicleImage(null);
     setExistingImage("");
     setImagePreview("");
@@ -306,6 +393,29 @@ function AdminDashboard() {
       ));
       addToast(err.response?.data?.message || "Failed to update vehicle", "error");
     }
+  };
+
+  const updatePickupLocationField = (index, field, value) => {
+    setVehicleForm((prev) => ({
+      ...prev,
+      pickup_locations: prev.pickup_locations.map((location, locationIndex) => (
+        locationIndex === index ? { ...location, [field]: value } : location
+      ))
+    }));
+  };
+
+  const addPickupLocationField = () => {
+    setVehicleForm((prev) => ({
+      ...prev,
+      pickup_locations: [...prev.pickup_locations, { name: "", lat: "", lng: "" }]
+    }));
+  };
+
+  const removePickupLocationField = (index) => {
+    setVehicleForm((prev) => ({
+      ...prev,
+      pickup_locations: prev.pickup_locations.filter((_, locationIndex) => locationIndex !== index)
+    }));
   };
 
   // Admin profile handlers
@@ -540,6 +650,19 @@ function AdminDashboard() {
                       <p className="vehicle-price">
                         ₹{vehicle.pricePerDay} <span>/ day</span>
                       </p>
+                      <VehicleDetailsCard vehicle={vehicle} />
+                      <div className="vehicle-feedback-summary">
+                        <h4>Feedback</h4>
+                        <p>
+                          Average Rating: {feedbackSummary[vehicle._id]?.average_rating || "N/A"} (
+                          {feedbackSummary[vehicle._id]?.review_count || 0} reviews)
+                        </p>
+                        {(feedbackSummary[vehicle._id]?.recent_comments || []).map((comment, index) => (
+                          <p key={`${vehicle._id}-comment-${index}`} className="vehicle-feedback-comment">
+                            "{comment}"
+                          </p>
+                        ))}
+                      </div>
                       <div className="vehicle-actions">
                         <button
                           className="btn btn-outline btn-sm"
@@ -724,6 +847,121 @@ function AdminDashboard() {
                       required
                     />
                   </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Seats</label>
+                    <input
+                      type="number"
+                      className="form-input"
+                      placeholder="e.g., 4"
+                      min="1"
+                      value={vehicleForm.seats}
+                      onChange={(e) => setVehicleForm({ ...vehicleForm, seats: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Fuel Type</label>
+                    <select
+                      className="form-input"
+                      value={vehicleForm.fuelType}
+                      onChange={(e) => setVehicleForm({ ...vehicleForm, fuelType: e.target.value })}
+                    >
+                      <option value="">Select fuel type</option>
+                      <option value="Petrol">Petrol</option>
+                      <option value="Diesel">Diesel</option>
+                      <option value="Electric">Electric</option>
+                      <option value="CNG">CNG</option>
+                      <option value="Hybrid">Hybrid</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Vehicle Category</label>
+                    <select
+                      className="form-input"
+                      value={vehicleForm.category}
+                      onChange={(e) => setVehicleForm({ ...vehicleForm, category: e.target.value })}
+                    >
+                      <option value="">Select category</option>
+                      <option value="Hatchback">Hatchback</option>
+                      <option value="Sedan">Sedan</option>
+                      <option value="SUV">SUV</option>
+                      <option value="Jeep">Jeep</option>
+                      <option value="Van">Van</option>
+                      <option value="Auto">Auto</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">AC Option</label>
+                    <select
+                      className="form-input"
+                      value={vehicleForm.ac}
+                      onChange={(e) => setVehicleForm({ ...vehicleForm, ac: e.target.value })}
+                    >
+                      <option value="">Not specified</option>
+                      <option value="true">AC</option>
+                      <option value="false">Non-AC</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Luggage Capacity</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g., 2 bags"
+                      value={vehicleForm.luggage_capacity}
+                      onChange={(e) => setVehicleForm({ ...vehicleForm, luggage_capacity: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Pickup Locations</label>
+                    <div className="admin-pickup-locations">
+                      {vehicleForm.pickup_locations.map((location, index) => (
+                        <div key={`pickup-location-${index}`} className="admin-pickup-row">
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="Location name"
+                            value={location.name}
+                            onChange={(e) => updatePickupLocationField(index, "name", e.target.value)}
+                          />
+                          <input
+                            type="number"
+                            step="any"
+                            className="form-input"
+                            placeholder="Latitude"
+                            value={location.lat}
+                            onChange={(e) => updatePickupLocationField(index, "lat", e.target.value)}
+                          />
+                          <input
+                            type="number"
+                            step="any"
+                            className="form-input"
+                            placeholder="Longitude"
+                            value={location.lng}
+                            onChange={(e) => updatePickupLocationField(index, "lng", e.target.value)}
+                          />
+                          {vehicleForm.pickup_locations.length > 1 && (
+                            <button
+                              type="button"
+                              className="btn btn-danger btn-sm"
+                              onClick={() => removePickupLocationField(index)}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button type="button" className="btn btn-outline btn-sm" onClick={addPickupLocationField}>
+                        Add Location
+                      </button>
+                    </div>
+                  </div>
                   
                   <div className="form-group">
                     <label className="form-label">Vehicle Image</label>
@@ -784,4 +1022,3 @@ function AdminDashboard() {
 }
 
 export default AdminDashboard;
-

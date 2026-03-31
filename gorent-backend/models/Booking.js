@@ -23,6 +23,21 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  pickupLocation: {
+    address: { type: String, default: "" },
+    coordinates: {
+      lat: { type: Number, default: null },
+      lng: { type: Number, default: null }
+    }
+  },
+  feedbackSubmitted: {
+    type: Boolean,
+    default: false
+  },
+  feedback_submitted: {
+    type: Boolean,
+    default: false
+  },
   status: {
     type: String,
     enum: ["pending", "confirmed", "completed", "cancelled"],
@@ -35,4 +50,3 @@ const bookingSchema = new mongoose.Schema({
 });
 
 module.exports = mongoose.model("Booking", bookingSchema);
-

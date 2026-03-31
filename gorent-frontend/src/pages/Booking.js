@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { useToast } from "../components/Toast";
 import { useConfirmDialog } from "../components/ConfirmDialog";
+import RideFeedback from "../components/RideFeedback";
 
 // Get API URL from environment or use default
 const getApiUrl = () => {
@@ -14,16 +15,30 @@ const getApiUrl = () => {
 };
 
 const API_URL = getApiUrl();
-const BASE_URL = API_URL.replace("/api", "");
 
 // Helper function to get full image URL
 const getImageUrl = (imagePath) => {
   if (!imagePath) return null;
-  if (imagePath.startsWith("http")) return imagePath;
-  if (imagePath.startsWith("/uploads")) {
-    return BASE_URL + imagePath;
+  const normalizedPath = String(imagePath).trim().replace(/\\/g, "/");
+  if (normalizedPath.startsWith("http")) return normalizedPath;
+
+  const apiOrigin = API_URL.replace(/\/api\/?$/, "");
+  const apiBase = API_URL.replace(/\/$/, "");
+
+  // Route uploaded files through /api/uploads for proxy-based deployments
+  if (normalizedPath.startsWith("/uploads")) {
+    return `${apiBase}${normalizedPath}`;
   }
-  return BASE_URL + imagePath;
+
+  if (normalizedPath.startsWith("uploads/")) {
+    return `${apiBase}/${normalizedPath}`;
+  }
+
+  if (normalizedPath.startsWith("/")) {
+    return `${apiOrigin}${normalizedPath}`;
+  }
+
+  return `${apiOrigin}/${normalizedPath}`;
 };
 
 function Bookings() {
@@ -31,12 +46,28 @@ function Bookings() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [cancelling, setCancelling] = useState(null);
+  const [feedbackRide, setFeedbackRide] = useState(null);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [dismissedRideIds, setDismissedRideIds] = useState([]);
   const { addToast } = useToast();
   const { confirm } = useConfirmDialog();
 
   useEffect(() => {
     fetchBookings(true);
   }, []);
+
+  useEffect(() => {
+    if (feedbackRide) return;
+    const pendingFeedbackRide = bookings.find(
+      (booking) => booking.status === "completed"
+        && !booking.feedbackSubmitted
+        && !booking.feedback_submitted
+        && !dismissedRideIds.includes(booking._id)
+    );
+    if (pendingFeedbackRide) {
+      setFeedbackRide(pendingFeedbackRide);
+    }
+  }, [bookings, feedbackRide, dismissedRideIds]);
 
   const fetchBookings = async (showLoading = true) => {
     try {
@@ -119,6 +150,50 @@ function Bookings() {
     });
   };
 
+  const handleFeedbackSubmit = async (payload) => {
+    try {
+      setFeedbackLoading(true);
+      const token = localStorage.getItem("token");
+      const response = await axios.post(`${API_URL}/feedback`, payload, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 10000
+      });
+      addToast(response.data?.message || "Feedback submitted", "success");
+      setDismissedRideIds((prev) => [...prev, payload.booking_id]);
+      setFeedbackRide(null);
+      fetchBookings(false);
+    } catch (err) {
+      addToast(err.response?.data?.message || "Failed to submit feedback", "error");
+    } finally {
+      setFeedbackLoading(false);
+    }
+  };
+
+  const handleFeedbackSkip = async () => {
+    if (!feedbackRide?._id) return;
+
+    try {
+      setFeedbackLoading(true);
+      const token = localStorage.getItem("token");
+      const response = await axios.put(
+        `${API_URL}/feedback/skip/${feedbackRide._id}`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 10000
+        }
+      );
+      addToast(response.data?.message || "Feedback skipped", "info");
+      setDismissedRideIds((prev) => [...prev, feedbackRide._id]);
+      setFeedbackRide(null);
+      fetchBookings(false);
+    } catch (err) {
+      addToast(err.response?.data?.message || "Unable to skip feedback right now", "error");
+    } finally {
+      setFeedbackLoading(false);
+    }
+  };
+
   return (
     <div className="page">
       <div className="container">
@@ -168,6 +243,9 @@ function Bookings() {
                 <div className="booking-dates">
                   <p><strong>Start Date:</strong> {formatDate(booking.startDate)}</p>
                   <p><strong>End Date:</strong> {formatDate(booking.endDate)}</p>
+                  {booking.pickupLocation?.address && (
+                    <p><strong>Pickup:</strong> {booking.pickupLocation.address}</p>
+                  )}
                 </div>
                 
                 <div className="d-flex justify-between align-center mt-2">
@@ -194,9 +272,16 @@ function Bookings() {
           </div>
         )}
       </div>
+      {feedbackRide && (
+        <RideFeedback
+          booking={feedbackRide}
+          loading={feedbackLoading}
+          onSubmit={handleFeedbackSubmit}
+          onSkip={handleFeedbackSkip}
+        />
+      )}
     </div>
   );
 }
 
 export default Bookings;
-

@@ -5,6 +5,7 @@ const bcrypt = require("bcryptjs");
 require("dotenv").config();
 
 const app = express();
+app.set("trust proxy", 1);
 
 /* ==============================
    ENVIRONMENT VARIABLE VALIDATION
@@ -59,6 +60,7 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
    STATIC FILES
 ================================= */
 app.use("/uploads", express.static("uploads"));
+app.use("/api/uploads", express.static("uploads"));
 
 /* ==============================
    DATABASE CONNECTION
@@ -219,6 +221,8 @@ app.post("/api/admin/reset", async (req, res) => {
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/vehicles", require("./routes/vehicleRoutes"));
 app.use("/api/bookings", require("./routes/bookingRoutes"));
+app.use("/api/feedback", require("./routes/feedbackRoutes"));
+app.use("/api/location", require("./routes/locationRoutes"));
 
 /* ==============================
    404 HANDLER
@@ -324,4 +328,3 @@ const server = app.listen(PORT, "0.0.0.0", () => {
 });
 
 module.exports = app;
-
