@@ -21,6 +21,14 @@ const bookingFeedbackSchema = new mongoose.Schema(
       required: true,
       index: true
     },
+    customer_name: {
+      type: String,
+      default: ""
+    },
+    customer_email: {
+      type: String,
+      default: ""
+    },
     rating: {
       type: Number,
       min: 1,

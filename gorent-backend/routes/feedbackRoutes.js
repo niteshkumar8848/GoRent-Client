@@ -4,6 +4,7 @@ const auth = require("../middleware/authMiddleware");
 const admin = require("../middleware/adminMiddleware");
 const Booking = require("../models/Booking");
 const BookingFeedback = require("../models/BookingFeedback");
+const User = require("../models/User");
 
 const checkDB = (req, res, next) => {
   if (mongoose.connection.readyState !== 1) {
@@ -75,10 +76,14 @@ router.post("/", checkDB, auth, async (req, res) => {
       return res.status(400).json({ success: false, message: "customer_id does not match booking customer" });
     }
 
+    const customer = await User.findById(booking.user).select("name email").lean();
+
     const feedback = new BookingFeedback({
       booking_id: booking._id,
       vehicle_id: booking.vehicle,
       customer_id: booking.user,
+      customer_name: customer?.name || "",
+      customer_email: customer?.email || "",
       rating: parsedRating,
       comment: (comment || "").slice(0, 300),
       tags: Array.isArray(tags) ? tags.slice(0, 15) : []

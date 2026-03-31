@@ -3,6 +3,7 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const auth = require("../middleware/authMiddleware");
+const admin = require("../middleware/adminMiddleware");
 const mongoose = require("mongoose");
 
 // Middleware to check if MongoDB is connected
@@ -376,5 +377,129 @@ router.put("/admin-profile", checkDB, auth, async (req, res) => {
   }
 });
 
-module.exports = router;
+// Admin: get all users
+router.get("/users", checkDB, auth, admin, async (req, res) => {
+  try {
+    const users = await User.find()
+      .select("-password")
+      .sort({ createdAt: -1, _id: -1 })
+      .lean();
 
+    res.json({
+      success: true,
+      count: users.length,
+      data: users
+    });
+  } catch (err) {
+    console.error("Get users error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error while fetching users"
+    });
+  }
+});
+
+// Admin: blacklist user
+router.put("/users/:id/blacklist", checkDB, auth, admin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+
+    if (String(req.user.id) === String(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot blacklist your own account"
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    if (user.role === "admin") {
+      return res.status(400).json({
+        success: false,
+        message: "Admin accounts cannot be blacklisted"
+      });
+    }
+
+    user.isBlacklisted = true;
+    user.blacklistReason = (reason || "Blacklisted by admin").slice(0, 200);
+    user.blacklistedAt = new Date();
+    user.blacklistedBy = req.user.id;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "User blacklisted successfully",
+      data: {
+        id: user._id,
+        isBlacklisted: user.isBlacklisted,
+        blacklistReason: user.blacklistReason,
+        blacklistedAt: user.blacklistedAt
+      }
+    });
+  } catch (err) {
+    console.error("Blacklist user error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error while blacklisting user"
+    });
+  }
+});
+
+// Admin: unblacklist user
+router.put("/users/:id/unblacklist", checkDB, auth, admin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    user.isBlacklisted = false;
+    user.blacklistReason = "";
+    user.blacklistedAt = null;
+    user.blacklistedBy = null;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "User unblocked successfully",
+      data: {
+        id: user._id,
+        isBlacklisted: user.isBlacklisted
+      }
+    });
+  } catch (err) {
+    console.error("Unblacklist user error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error while unblocking user"
+    });
+  }
+});
+
+module.exports = router;

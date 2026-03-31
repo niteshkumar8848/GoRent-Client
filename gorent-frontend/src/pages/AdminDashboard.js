@@ -3,6 +3,7 @@ import axios from "axios";
 import { useToast } from "../components/Toast";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import VehicleDetailsCard from "../components/VehicleDetailsCard";
+import AdminLocationPickerMap from "../components/AdminLocationPickerMap";
 
 const getApiUrl = () => {
   const envUrl = process.env.REACT_APP_API_URL;
@@ -44,6 +45,7 @@ function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("bookings");
   const [bookings, setBookings] = useState([]);
   const [vehicles, setVehicles] = useState([]);
+  const [users, setUsers] = useState([]);
   const [feedbackSummary, setFeedbackSummary] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -80,6 +82,7 @@ function AdminDashboard() {
   const [existingImage, setExistingImage] = useState("");
   const [imagePreview, setImagePreview] = useState("");
   const [vehicleLoading, setVehicleLoading] = useState(false);
+  const [mapPickerIndex, setMapPickerIndex] = useState(null);
 
   const token = localStorage.getItem("token");
   const config = {
@@ -110,6 +113,7 @@ function AdminDashboard() {
       await Promise.all([
         fetchBookings(showLoading),
         fetchVehicles(showLoading),
+        fetchUsers(showLoading),
         fetchAdminProfile(showLoading),
         fetchFeedbackSummary(showLoading)
       ]);
@@ -196,6 +200,28 @@ function AdminDashboard() {
       });
     } catch (err) {
       console.error("Failed to fetch vehicles");
+    }
+  };
+
+  const fetchUsers = async (showLoading = true) => {
+    try {
+      const res = await axios.get(`${API_URL}/auth/users`, config);
+
+      let usersData = [];
+      if (Array.isArray(res.data)) {
+        usersData = res.data;
+      } else if (res.data && res.data.data) {
+        usersData = res.data.data;
+      }
+
+      setUsers(prev => {
+        if (JSON.stringify(prev) !== JSON.stringify(usersData)) {
+          return usersData;
+        }
+        return prev;
+      });
+    } catch (err) {
+      console.error("Failed to fetch users");
     }
   };
 
@@ -404,6 +430,27 @@ function AdminDashboard() {
     }));
   };
 
+  const toggleUserBlacklist = async (targetUser, shouldBlacklist) => {
+    const endpoint = shouldBlacklist
+      ? `${API_URL}/auth/users/${targetUser._id}/blacklist`
+      : `${API_URL}/auth/users/${targetUser._id}/unblacklist`;
+
+    const actionText = shouldBlacklist ? "blacklist" : "unblock";
+    confirm(`Are you sure you want to ${actionText} this user?`, async () => {
+      try {
+        await axios.put(
+          endpoint,
+          shouldBlacklist ? { reason: "Blocked by admin" } : {},
+          config
+        );
+        addToast(`User ${shouldBlacklist ? "blacklisted" : "unblocked"} successfully`, "success");
+        fetchUsers(false);
+      } catch (err) {
+        addToast(err.response?.data?.message || `Failed to ${actionText} user`, "error");
+      }
+    });
+  };
+
   const addPickupLocationField = () => {
     setVehicleForm((prev) => ({
       ...prev,
@@ -416,6 +463,37 @@ function AdminDashboard() {
       ...prev,
       pickup_locations: prev.pickup_locations.filter((_, locationIndex) => locationIndex !== index)
     }));
+  };
+
+  const openLocationPicker = (index) => {
+    setMapPickerIndex(index);
+  };
+
+  const closeLocationPicker = () => {
+    setMapPickerIndex(null);
+  };
+
+  const applyMapSelection = async (position) => {
+    const [lat, lng] = position;
+    if (mapPickerIndex === null) return;
+
+    updatePickupLocationField(mapPickerIndex, "lat", String(lat));
+    updatePickupLocationField(mapPickerIndex, "lng", String(lng));
+
+    try {
+      const response = await axios.get(`${API_URL}/location/reverse`, {
+        params: { lat, lon: lng },
+        timeout: 10000
+      });
+      const address = response.data?.data?.display_name;
+      if (address) {
+        updatePickupLocationField(mapPickerIndex, "name", address);
+      }
+    } catch (err) {
+      // Keep manual name entry fallback if reverse geocode fails
+    } finally {
+      closeLocationPicker();
+    }
   };
 
   // Admin profile handlers
@@ -524,6 +602,12 @@ function AdminDashboard() {
             onClick={() => setActiveTab("vehicles")}
           >
             Vehicles ({vehicles.length})
+          </button>
+          <button
+            className={`admin-tab ${activeTab === "users" ? "active" : ""}`}
+            onClick={() => setActiveTab("users")}
+          >
+            Users ({users.length})
           </button>
           <button
             className={`admin-tab ${activeTab === "settings" ? "active" : ""}`}
@@ -694,6 +778,65 @@ function AdminDashboard() {
                 <div className="empty-state-icon">🚗</div>
                 <h3 className="empty-state-title">No vehicles yet</h3>
                 <p>Add your first vehicle to start renting</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Users Tab */}
+        {activeTab === "users" && (
+          <div>
+            {users.length > 0 ? (
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((targetUser) => (
+                    <tr key={targetUser._id}>
+                      <td>{targetUser.name || "N/A"}</td>
+                      <td>{targetUser.email || "N/A"}</td>
+                      <td>{targetUser.role || "user"}</td>
+                      <td>
+                        <span className={`booking-status ${targetUser.isBlacklisted ? "status-cancelled" : "status-confirmed"}`}>
+                          {targetUser.isBlacklisted ? "Blacklisted" : "Active"}
+                        </span>
+                      </td>
+                      <td>
+                        {targetUser.role !== "admin" ? (
+                          targetUser.isBlacklisted ? (
+                            <button
+                              className="btn btn-success btn-sm"
+                              onClick={() => toggleUserBlacklist(targetUser, false)}
+                            >
+                              Unblock
+                            </button>
+                          ) : (
+                            <button
+                              className="btn btn-danger btn-sm"
+                              onClick={() => toggleUserBlacklist(targetUser, true)}
+                            >
+                              Blacklist
+                            </button>
+                          )
+                        ) : (
+                          <span className="text-muted">Protected</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="empty-state">
+                <div className="empty-state-icon">👥</div>
+                <h3 className="empty-state-title">No users found</h3>
               </div>
             )}
           </div>
@@ -946,6 +1089,13 @@ function AdminDashboard() {
                             value={location.lng}
                             onChange={(e) => updatePickupLocationField(index, "lng", e.target.value)}
                           />
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            onClick={() => openLocationPicker(index)}
+                          >
+                            Pick on Map
+                          </button>
                           {vehicleForm.pickup_locations.length > 1 && (
                             <button
                               type="button"
@@ -1013,6 +1163,28 @@ function AdminDashboard() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+        {mapPickerIndex !== null && (
+          <div className="modal-overlay" onClick={closeLocationPicker}>
+            <div className="modal admin-location-picker-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">Select Vehicle Pickup Location</h2>
+                <button className="modal-close" onClick={closeLocationPicker}>
+                  &times;
+                </button>
+              </div>
+              <div className="modal-body">
+                <AdminLocationPickerMap
+                  initialPosition={[
+                    Number(vehicleForm.pickup_locations[mapPickerIndex]?.lat) || 28.6139,
+                    Number(vehicleForm.pickup_locations[mapPickerIndex]?.lng) || 77.209
+                  ]}
+                  onConfirm={applyMapSelection}
+                  onCancel={closeLocationPicker}
+                />
+              </div>
             </div>
           </div>
         )}

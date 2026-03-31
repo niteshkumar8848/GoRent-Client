@@ -91,13 +91,7 @@ function Login() {
       }));
 
       addToast("Login successful!", "success");
-      
-      // Redirect based on role
-      if (userData?.role === "admin") {
-        navigate("/admin");
-      } else {
-        navigate("/dashboard");
-      }
+      navigate("/");
     } catch (err) {
       console.error("Login error:", err.response || err);
       
@@ -175,4 +169,3 @@ function Login() {
 }
 
 export default Login;
-

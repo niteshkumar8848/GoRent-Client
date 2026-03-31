@@ -1,6 +1,7 @@
 const router = require("express").Router();
 const Booking = require("../models/Booking");
 const Vehicle = require("../models/Vehicle");
+const User = require("../models/User");
 const auth = require("../middleware/authMiddleware");
 const admin = require("../middleware/adminMiddleware");
 const mongoose = require("mongoose");
@@ -101,6 +102,21 @@ router.post("/", checkDB, auth, async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Invalid vehicle ID format"
+      });
+    }
+
+    const currentUser = await User.findById(req.user.id).select("isBlacklisted").lean();
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    if (currentUser.isBlacklisted) {
+      return res.status(403).json({
+        success: false,
+        message: "Your account is blocked from booking vehicles. Please contact support."
       });
     }
 
