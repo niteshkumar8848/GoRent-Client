@@ -89,6 +89,13 @@ function AdminDashboard() {
     headers: { Authorization: `Bearer ${token}` },
     timeout: 10000 // 10 second timeout
   };
+  const uploadConfig = {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "multipart/form-data"
+    },
+    timeout: 60000 // allow cold-start + upload time on Render
+  };
 
   useEffect(() => {
     // Initial fetch with loading indicator
@@ -293,11 +300,11 @@ function AdminDashboard() {
         await axios.put(
           `${API_URL}/vehicles/${editingVehicle._id}`,
           formData,
-          config
+          uploadConfig
         );
         addToast("Vehicle updated successfully", "success");
       } else {
-        await axios.post(`${API_URL}/vehicles`, formData, config);
+        await axios.post(`${API_URL}/vehicles`, formData, uploadConfig);
         addToast("Vehicle added successfully", "success");
       }
       
@@ -320,7 +327,14 @@ function AdminDashboard() {
       setImagePreview("");
       fetchVehicles();
     } catch (err) {
-      addToast(err.response?.data?.message || err.response?.data?.error || "Failed to save vehicle", "error");
+      if (err.code === "ECONNABORTED") {
+        addToast("Upload timed out. Please try again with a smaller image or retry once the server is awake.", "error");
+      } else {
+        addToast(
+          err.response?.data?.message || err.response?.data?.error || err.message || "Failed to save vehicle",
+          "error"
+        );
+      }
     } finally {
       setVehicleLoading(false);
     }
@@ -356,6 +370,12 @@ function AdminDashboard() {
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      const maxFileSize = 5 * 1024 * 1024;
+      if (file.size > maxFileSize) {
+        addToast("Image is too large. Maximum allowed size is 5MB.", "error");
+        e.target.value = "";
+        return;
+      }
       setVehicleImage(file);
       // Create preview URL
       const reader = new FileReader();
@@ -626,6 +646,7 @@ function AdminDashboard() {
                   <tr>
                     <th>Vehicle</th>
                     <th>User</th>
+                    <th>Contact</th>
                     <th>Dates</th>
                     <th>Total</th>
                     <th>Status</th>
@@ -644,6 +665,13 @@ function AdminDashboard() {
                         {booking.user?.name || "N/A"}
                         <br />
                         <small>{booking.user?.email}</small>
+                      </td>
+                      <td>
+                        {booking.contactNumber ? (
+                          <a href={`tel:${booking.contactNumber}`}>{booking.contactNumber}</a>
+                        ) : (
+                          <span className="text-muted">N/A</span>
+                        )}
                       </td>
                       <td>
                         {formatDate(booking.startDate)} - {formatDate(booking.endDate)}

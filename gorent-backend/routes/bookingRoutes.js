@@ -6,13 +6,6 @@ const auth = require("../middleware/authMiddleware");
 const admin = require("../middleware/adminMiddleware");
 const mongoose = require("mongoose");
 
-const getRequestOrigin = (req) => {
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  const protocol = (typeof forwardedProto === "string" ? forwardedProto.split(",")[0] : req.protocol) || "http";
-  const host = req.get("host");
-  return `${protocol}://${host}`;
-};
-
 const getPublicImageUrl = (req, imagePath) => {
   if (!imagePath) return "";
   const normalized = String(imagePath).trim().replace(/\\/g, "/");
@@ -21,22 +14,35 @@ const getPublicImageUrl = (req, imagePath) => {
     return normalized;
   }
 
-  const origin = getRequestOrigin(req);
-
   if (normalized.startsWith("/api/uploads/")) {
-    return `${origin}${normalized}`;
+    return normalized;
   }
   if (normalized.startsWith("/uploads/")) {
-    return `${origin}/api${normalized}`;
+    return `/api${normalized}`;
   }
   if (normalized.startsWith("uploads/")) {
-    return `${origin}/api/${normalized}`;
+    return `/api/${normalized}`;
   }
   if (normalized.startsWith("/")) {
-    return `${origin}${normalized}`;
+    return normalized;
   }
 
-  return `${origin}/${normalized}`;
+  return `/${normalized}`;
+};
+
+const getVehicleImageUrl = (req, vehicle) => {
+  const version = vehicle?.imageUpdatedAt
+    ? new Date(vehicle.imageUpdatedAt).getTime()
+    : null;
+
+  if (vehicle?.imageData && vehicle?._id) {
+    return version
+      ? `/api/vehicles/${vehicle._id}/image?v=${version}`
+      : `/api/vehicles/${vehicle._id}/image`;
+  }
+  const fallbackImage = getPublicImageUrl(req, vehicle?.image || "");
+  if (!fallbackImage) return fallbackImage;
+  return version ? `${fallbackImage}${fallbackImage.includes("?") ? "&" : "?"}v=${version}` : fallbackImage;
 };
 
 const normalizeBookingForResponse = (req, booking) => {
@@ -69,7 +75,10 @@ const normalizeBookingForResponse = (req, booking) => {
     feedback_submitted: Boolean(booking.feedback_submitted || booking.feedbackSubmitted),
     vehicle: {
       ...booking.vehicle,
-      image: getPublicImageUrl(req, booking.vehicle.image)
+      imageData: undefined,
+      imageMimeType: undefined,
+      imageEncoding: undefined,
+      image: getVehicleImageUrl(req, booking.vehicle)
     }
   };
 };
@@ -88,12 +97,21 @@ const checkDB = (req, res, next) => {
 // Create a new booking
 router.post("/", checkDB, auth, async (req, res) => {
   try {
-    const { vehicleId, startDate, endDate, pickupLocation } = req.body;
+    const { vehicleId, startDate, endDate, pickupLocation, contactNumber } = req.body;
     
-    if (!vehicleId || !startDate || !endDate) {
+    if (!vehicleId || !startDate || !endDate || !contactNumber) {
       return res.status(400).json({ 
         success: false,
-        message: "Please provide all required fields (vehicleId, startDate, endDate)" 
+        message: "Please provide all required fields (vehicleId, startDate, endDate, contactNumber)" 
+      });
+    }
+
+    const normalizedContactNumber = String(contactNumber).replace(/[\s()-]/g, "").trim();
+    const contactRegex = /^\+?[0-9]{7,15}$/;
+    if (!contactRegex.test(normalizedContactNumber)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid contact number"
       });
     }
 
@@ -162,6 +180,7 @@ router.post("/", checkDB, auth, async (req, res) => {
       startDate: start,
       endDate: end,
       totalPrice,
+      contactNumber: normalizedContactNumber,
       pickupLocation: {
         address: pickupLocation?.address || "",
         coordinates: {

@@ -1,16 +1,23 @@
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "./ThemeProvider";
 
 function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const token = localStorage.getItem("token");
   const user = JSON.parse(localStorage.getItem("user") || "null");
   const { theme, toggleTheme } = useTheme();
 
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
+
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+    setMobileMenuOpen(false);
     navigate("/login");
   };
 
@@ -19,14 +26,29 @@ function Navbar() {
   return (
     <nav className="navbar">
       <div className="navbar-container">
-        <Link to="/" className="navbar-brand">
-          <img src="/logo.jpg" alt="GoRent" className="navbar-logo" />
-        </Link>
-        
-        <div className="navbar-menu">
+        <div className="navbar-top">
+          <Link to="/" className="navbar-brand" onClick={() => setMobileMenuOpen(false)}>
+            <img src="/logo.jpg" alt="GoRent" className="navbar-logo" />
+          </Link>
+
+          <button
+            type="button"
+            className={`navbar-menu-toggle ${mobileMenuOpen ? "open" : ""}`}
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            aria-expanded={mobileMenuOpen}
+            aria-label="Toggle navigation menu"
+          >
+            <span />
+            <span />
+            <span />
+          </button>
+        </div>
+
+        <div className={`navbar-menu ${mobileMenuOpen ? "open" : ""}`}>
           <Link 
             to="/" 
             className={`navbar-link ${isActive("/") ? "active" : ""}`}
+            onClick={() => setMobileMenuOpen(false)}
           >
             Home
           </Link>
@@ -35,6 +57,7 @@ function Navbar() {
             <Link 
               to="/bookings" 
               className={`navbar-link ${isActive("/bookings") ? "active" : ""}`}
+              onClick={() => setMobileMenuOpen(false)}
             >
               My Bookings
             </Link>
@@ -44,6 +67,7 @@ function Navbar() {
             <Link 
               to="/admin" 
               className={`navbar-link ${isActive("/admin") ? "active" : ""}`}
+              onClick={() => setMobileMenuOpen(false)}
             >
               Admin Dashboard
             </Link>
@@ -53,6 +77,7 @@ function Navbar() {
             <Link 
               to="/dashboard" 
               className={`navbar-link ${isActive("/dashboard") ? "active" : ""}`}
+              onClick={() => setMobileMenuOpen(false)}
             >
               My Dashboard
             </Link>
@@ -62,16 +87,16 @@ function Navbar() {
             {token ? (
               <>
                 <span>Welcome, {user?.name || "User"}</span>
-                <button onClick={handleLogout} className="btn btn-outline btn-sm">
+                <button onClick={handleLogout} className="btn btn-danger btn-sm">
                   Logout
                 </button>
               </>
             ) : (
               <>
-                <Link to="/login" className="btn btn-outline btn-sm">
+                <Link to="/login" className="btn btn-outline btn-sm" onClick={() => setMobileMenuOpen(false)}>
                   Login
                 </Link>
-                <Link to="/register" className="btn btn-primary btn-sm">
+                <Link to="/register" className="btn btn-primary btn-sm" onClick={() => setMobileMenuOpen(false)}>
                   Register
                 </Link>
               </>
@@ -92,4 +117,3 @@ function Navbar() {
 }
 
 export default Navbar;
-

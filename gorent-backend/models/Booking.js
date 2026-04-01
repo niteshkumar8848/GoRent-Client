@@ -23,6 +23,11 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  contactNumber: {
+    type: String,
+    trim: true,
+    default: ""
+  },
   pickupLocation: {
     address: { type: String, default: "" },
     coordinates: {

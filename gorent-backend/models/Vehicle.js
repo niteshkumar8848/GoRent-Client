@@ -33,6 +33,10 @@ const vehicleSchema = new mongoose.Schema({
   luggage_capacity: { type: String, default: "" },
   pickup_locations: { type: [pickupLocationSchema], default: [] },
   image: String,
+  imageData: { type: Buffer, default: null },
+  imageMimeType: { type: String, default: "" },
+  imageEncoding: { type: String, enum: ["", "gzip"], default: "" },
+  imageUpdatedAt: { type: Date, default: null },
   available: { type: Boolean, default: true }
 });
 
